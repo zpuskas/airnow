@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# Author: Zoltan Puskas <zoltan@sinustrom.info>, 2022
+# License: GPLv3
+#
+# Script to fetch PM2.5 AQI (fine particle air quality index) from AirNow.gov to
+# be used in various automation tasks. User needs to create a ~/.config/airnow
+# configuration file and set the following to variables:
+# - API_KEY: API key to access data from AirNow. Can be obtained by signing up
+#   at https://docs.airnowapi.org/login
+# - ZIP_CODE: ZIP code to request the forecast for
+#
+# Note that the API is rate limited to 500 requests per hour, but that's okay,
+# since the current data changes hourly and the forecast every 24h, should be
+# enough for daily tasks.
+#
+# If data is used in multiple places cache it! DON'T USE THE SCRIPT TO SCRAPE!
+# Bulk data downloads are available at https://docs.airnowapi.org/files (using
+# the same registration).
+#
+# The tool assumes a 256 color terminal
+#
+# Dependencies: bash, coreutils, curl, jq
+
+# Variables
+CONFIG_FILE=${AIRNOW_CONFIG:-"${HOME}/.config/airnow"}
+AIRNOW_CURRENT_URL="https://www.airnowapi.org/aq/observation/zipCode/current/"
+AIRNOW_FORECAST_URL="https://www.airnowapi.org/aq/forecast/zipCode/"
+COLOR=0
+FORECAST=0
+NUMBER_ONLY=0
+UNHEALTHY_ONLY=0
+
+# Helper functions
+die() {
+    echo "$1" 1>&2
+    exit 1
+}
+
+# Function will generate the AirNow.gov API call URL. By default it returns one
+# for the current observation. If any argument is added to the call it will
+# return the forecast version.
+get_url() {
+    local URL
+
+    if [[ $# -gt 0 ]]; then
+        URL="${AIRNOW_FORECAST_URL}?format=application/json&zipCode=${ZIP_CODE}&&distance=10&API_KEY=${API_KEY}"
+    else
+        URL="${AIRNOW_CURRENT_URL}?format=application/json&zipCode=${ZIP_CODE}&distance=10&API_KEY=${API_KEY}"
+    fi
+
+    echo "${URL}"
+}
+
+# Function will print a bar type of indicator to show the air pollution levels.
+# If colors are enabled the bars will also be colored. Color scheme follows the
+# recommendation from https://docs.airnowapi.org/aq101
+pollution_indicator() {
+    case $1 in
+        1)
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput setab 46)$(tput setaf 0)"
+            echo -n "[|     ]"
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput sgr0)"
+            echo ""
+            ;;
+        2)
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput setab 227)$(tput setaf 0)"
+            echo -n "[||    ]"
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput sgr0)"
+            echo ""
+            ;;
+        3)
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput setab 202)$(tput setaf 0)"
+            echo -n "[|||   ]"
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput sgr0)"
+            echo ""
+            ;;
+        4)
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput setab 1)"
+            echo -n "[||||  ]"
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput sgr0)"
+            echo ""
+            ;;
+        5)
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput setab 54)"
+            echo -n "[||||| ]"
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput sgr0)"
+            echo ""
+            ;;
+        6)
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput setab 52)"
+            echo -n "[||||||]"
+            [[ $COLOR -gt 0 ]] && echo -n "$(tput sgr0)"
+            echo ""
+            ;;
+        *)
+            ;;
+    esac
+}
+
+# Main()
+# Check for config file
+[[ -f "${CONFIG_FILE}" ]] || die "Missing configuration file: ${CONFIG_FILE} not found!"
+
+# shellcheck source=/dev/null
+. "${CONFIG_FILE}"
+
+# Check settings
+[[ -n "${API_KEY}" ]] || die "API_KEY has no value!"
+[[ -n "${ZIP_CODE}" ]] || die "ZIP code not specified!"
+
+# Handle command line parameters
+while  (( $# >= 1)); do
+    case "$1" in
+    "-h")
+        echo "Fetch AQI (air quality index) from AirNow.gov"
+        echo ""
+        echo "Usage:"
+        echo ""
+        echo "$(basename "${0}") [-f] [-c] [-n] [-u]"
+        echo ""
+        echo "  -c    Use colors in the output"
+        echo "  -f    Fetch forecast instead of current observation"
+        echo "  -h    Print help message"
+        echo "  -n    Print AQI information only, with date if forecast"
+        echo "  -u    Print AQI information only when AQI is unhealthy (>50)"
+        echo ""
+        echo ""
+        echo "Zoltan Puskas <zoltan@sinustrom.info>, 2022"
+        echo "License: GPLv3"
+        exit 0
+        ;;
+    "-c")
+        COLOR=1
+        ;;
+    "-f")
+        FORECAST=1
+        ;;
+    "-n")
+        NUMBER_ONLY=1
+        ;;
+    "-u")
+        UNHEALTHY_ONLY=1
+        ;;
+    "--")
+        shift
+        break
+        ;;
+    *)
+        ;;
+    esac
+    shift
+done
+
+# Get different URL based on whether we want the current state or forecast data
+if [[ $FORECAST -gt 0 ]]; then
+    URL=$(get_url true)
+else
+    URL=$(get_url)
+fi
+
+# Fetch data
+if ! RAW_DATA=$(curl -s "${URL}"); then
+    die "Fetching AirNow.gov data has failed. Please retry later!"
+fi
+
+# We are only interested in sections that have PM2.5 information
+DATA=$(echo "$RAW_DATA" | jq "[ .[] | select(.ParameterName==\"PM2.5\") ]")
+
+# Process and print data based on type
+if [[ $FORECAST -gt 0 ]]; then
+    COUNT=$(( $(echo "$DATA" | jq ". | length") - 1 ))
+    for i in $(seq 0 $COUNT); do
+        AQI_PM25=$(echo "$DATA" | jq ".[$i] | select(.ParameterName==\"PM2.5\") | .AQI")
+        AQI_DATE=$(echo "$DATA" | jq ".[$i] | select(.ParameterName==\"PM2.5\") | .DateForecast" | tr -d \" | tr -d " ")
+        [[ $NUMBER_ONLY -gt 0 ]] && echo "$AQI_DATE $AQI_PM25" && continue
+        AQI_CAT=$(echo "$DATA" | jq ".[$i] | select(.ParameterName==\"PM2.5\") | .Category.Name" | tr -d \")
+        AQI_CAT_ID=$(echo "$DATA" | jq ".[$i] | select(.ParameterName==\"PM2.5\") | .Category.Number")
+        printf "%s %s %3d %s\n" "$AQI_DATE" "$(pollution_indicator "$AQI_CAT_ID")" "$AQI_PM25" "$AQI_CAT"
+    done
+else
+    AQI_PM25=$(echo "$DATA" | jq ".[] | select(.ParameterName==\"PM2.5\") | .AQI")
+    [[ $NUMBER_ONLY -gt 0 ]] && echo "$AQI_PM25" && exit 0
+    AQI_CAT=$(echo "$DATA" | jq ".[] | select(.ParameterName==\"PM2.5\") | .Category.Name" | tr -d \")
+    AQI_CAT_ID=$(echo "$DATA" | jq ".[] | select(.ParameterName==\"PM2.5\") | .Category.Number")
+    [[ $UNHEALTHY_ONLY -gt 0 ]] && [[ $AQI_PM25 -lt 51 ]] && exit 0
+    printf "%s %3d %s\n" "$(pollution_indicator "$AQI_CAT_ID")" "$AQI_PM25" "$AQI_CAT"
+fi
