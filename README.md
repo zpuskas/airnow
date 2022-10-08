@@ -9,7 +9,7 @@ aimed at CLI users and various automation tasks.
 User needs to create a `~/.config/airnow` configuration file and set the following
 variables:
 * API_KEY: API key to access data from AirNow.
-* ZIP_CODE: ZIP code to request the AQI for.
+* ZIP_CODE: ZIP code to request the AQI for. (optional)
 
 Example:
 
@@ -36,13 +36,16 @@ are available for this purpose using the same registration.
 Usage:
 
 ````
-airnow [-f] [-c] [-n] [-u]
+Usage: airnow [OPTION]... [ZIP_CODE]
 
-  -c    Use colors in the output
-  -f    Fetch forecast instead of current observation
-  -h    Print help message
-  -n    Print AQI information only, with date if forecast
-  -u    Print AQI information only when AQI is unhealthy (>50)
+  -c, --colorless     Print colorless output
+  -f, --forecast      Fetch forecast instead of current value
+  -h, --help          Print help message
+  -n, --number-only   Print AQI information only, with date if forecast
+  -u, --unhealthy     Print AQI information only when AQI is unhealthy (>50)
+
+ZIP code must be specified either on the CLI or in the configuration file.
+If ZIP code is specified in both places, CLI argument takes precedence.
 ````
 
 Examples:

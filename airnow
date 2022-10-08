@@ -7,7 +7,7 @@
 # configuration file and set the following to variables:
 # - API_KEY: API key to access data from AirNow. Can be obtained by signing up
 #   at https://docs.airnowapi.org/login
-# - ZIP_CODE: ZIP code to request the forecast for
+# - ZIP_CODE: ZIP code to request the forecast for (optional)
 #
 # Note that the API is rate limited to 500 requests per hour, but that's okay,
 # since the current data changes hourly and the forecast every 24h, should be
@@ -25,7 +25,7 @@
 CONFIG_FILE=${AIRNOW_CONFIG:-"${HOME}/.config/airnow"}
 AIRNOW_CURRENT_URL="https://www.airnowapi.org/aq/observation/zipCode/current/"
 AIRNOW_FORECAST_URL="https://www.airnowapi.org/aq/forecast/zipCode/"
-COLOR=0
+COLOR=1
 FORECAST=0
 NUMBER_ONLY=0
 UNHEALTHY_ONLY=0
@@ -106,50 +106,63 @@ pollution_indicator() {
 
 # Check settings
 [[ -n "${API_KEY}" ]] || die "API_KEY has no value!"
-[[ -n "${ZIP_CODE}" ]] || die "ZIP code not specified!"
+
+POSITIONAL_ARGS=()
 
 # Handle command line parameters
-while  (( $# >= 1)); do
+while  [[ $# -gt 0 ]]; do
     case "$1" in
-    "-h")
+    -h|--help)
         echo "Fetch AQI (air quality index) from AirNow.gov"
         echo ""
-        echo "Usage:"
+        echo "Usage: $(basename "${0}") [OPTION]... [ZIP_CODE]"
         echo ""
-        echo "$(basename "${0}") [-f] [-c] [-n] [-u]"
+        echo "  -c, --colorless     Print colorless output"
+        echo "  -f, --forecast      Fetch forecast instead of current value"
+        echo "  -h, --help          Print help message"
+        echo "  -n, --number-only   Print AQI information only, with date if forecast"
+        echo "  -u, --unhealthy     Print AQI information only when AQI is unhealthy (>50)"
         echo ""
-        echo "  -c    Use colors in the output"
-        echo "  -f    Fetch forecast instead of current observation"
-        echo "  -h    Print help message"
-        echo "  -n    Print AQI information only, with date if forecast"
-        echo "  -u    Print AQI information only when AQI is unhealthy (>50)"
-        echo ""
+        echo "ZIP code must be specified either on the CLI or in the configuration file."
+        echo "If ZIP code is specified in both places, CLI argument takes precedence."
         echo ""
         echo "Zoltan Puskas <zoltan@sinustrom.info>, 2022"
         echo "License: GPLv3"
         exit 0
         ;;
-    "-c")
-        COLOR=1
-        ;;
-    "-f")
-        FORECAST=1
-        ;;
-    "-n")
-        NUMBER_ONLY=1
-        ;;
-    "-u")
-        UNHEALTHY_ONLY=1
-        ;;
-    "--")
+    -c|--colorless)
+        COLOR=0
         shift
-        break
+        ;;
+    -f|--forecast)
+        FORECAST=1
+        shift
+        ;;
+    -n|--number-only)
+        NUMBER_ONLY=1
+        shift
+        ;;
+    -u|--unhealthy)
+        UNHEALTHY_ONLY=1
+        shift
+        ;;
+    --*|-*)
+        die "Unknown option $1"
         ;;
     *)
+        POSITIONAL_ARGS+=("$1")
+        shift
         ;;
     esac
-    shift
 done
+# Reset positional args for later processing
+set -- "${POSITIONAL_ARGS[@]}"
+
+# Check for ZIP code. CLI argument overrides config file settings.
+if [[ $# -gt 0 ]]; then
+    ZIP_CODE=$1
+fi
+[[ -n "${ZIP_CODE}" ]] || die "ZIP code not specified!"
 
 # Get different URL based on whether we want the current state or forecast data
 if [[ $FORECAST -gt 0 ]]; then
