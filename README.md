@@ -1,3 +1,5 @@
+![Shellcheck](https://github.com/zpuskas/airnow/actions/workflows/shellcheck.yml/badge.svg)
+
 # airnow
 
 Command line tool to fetch the current observations or the forecast of the PM2.5
